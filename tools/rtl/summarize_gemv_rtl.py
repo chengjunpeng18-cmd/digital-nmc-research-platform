@@ -6,6 +6,7 @@ from dataclasses import asdict
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2];sys.path[:0]=[str(ROOT),str(ROOT/'src')]
 from tools.rtl.run_mesh_rtl import golden_gemv,int32_wrap,json_hash,inputs_for,expected_results
+from tools.gemv_plot_style import BASELINE, BLUE, HATCH, INPUT, apply_style, bar_style
 from compiler.grid_mapper import map_grid
 from simulator.communication import MemAckPacket,TransactionDonePacket,ResultPacket
 from simulator.communication.scalable import PacketCodec
@@ -119,7 +120,7 @@ def draw(rows,paired,out):
     import matplotlib;matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     import numpy as np
-    plt.rcParams.update({'font.size':10,'svg.fonttype':'none'})
+    apply_style(plt)
     order=[next(r for r in rows if (r['m'],r['policy'])==(m,p)) for m in [161,251] for p in ['unindp-compact','noc-v04']]
     labels=[f"{r['m']}x{r['k']}\n{'Baseline (32)' if r['workers']==32 else 'v0.4 (16)'}" for r in order]
     figdir=out/'figure';figdir.mkdir(exist_ok=True)
@@ -131,23 +132,29 @@ def draw(rows,paired,out):
     fig,ax=plt.subplots(figsize=(10,5));x=np.arange(2);w=.34
     for i,policy in enumerate(['unindp-compact','noc-v04']):
         values=[next(r['rtl_total'] for r in rows if r['m']==m and r['policy']==policy) for m in [161,251]]
-        bars=ax.bar(x+(i-.5)*w,values,w,label='Baseline / 32 workers' if i==0 else 'NoC v0.4 / 16 workers');ax.bar_label(bars,padding=3)
+        style=bar_style(BASELINE) if i==0 else bar_style(BLUE,HATCH)
+        bars=ax.bar(x+(i-.5)*w,values,w,label='Baseline / 32 workers' if i==0 else 'NoC v0.4 / 16 workers',**style);ax.bar_label(bars,padding=3)
     ax.set_xticks(x,['161x97','251x127']);ax.set_ylabel('Measured total cycles');ax.set_title('Paired GEMV latency on the real 8x8 RTL mesh');ax.legend(loc='upper left');ax.set_ylim(0,max(r['rtl_total'] for r in rows)*1.32)
     for i,r in enumerate(paired):ax.text(i,max(v['rtl_total'] for v in rows if v['m']==r['m'])*1.09,f"Speedup {r['S_total']:.4f}x / cycles -{r['total_reduction_percent']:.2f}%",ha='center')
     save(fig,'01_rtl_paired_latency')
     fig,ax=plt.subplots(figsize=(10,5));x=np.arange(4)
-    ax.bar(x,[r['rtl_input'] for r in order],label='Input MEM_WRITE / SRAM / ACK')
-    ax.bar(x,[r['rtl_kernel'] for r in order],bottom=[r['rtl_input'] for r in order],label='Kernel + reduction + completion')
+    for i,r in enumerate(order):
+        baseline=r['policy']=='unindp-compact'
+        hatch=None if baseline else HATCH
+        ax.bar(x[i],r['rtl_input'],label='Input MEM_WRITE / SRAM / ACK' if i==0 else None,**bar_style(INPUT,hatch))
+        ax.bar(x[i],r['rtl_kernel'],bottom=r['rtl_input'],label='Kernel + reduction + completion' if i==1 else None,**bar_style(BASELINE if baseline else BLUE,hatch))
     ax.set_xticks(x,labels);ax.set_ylabel('Measured non-overlapping RTL cycles');ax.set_title('Measured input and kernel windows (drain not separately split)');ax.legend();save(fig,'02_rtl_phases')
     fig,axes=plt.subplots(1,2,figsize=(13,5));x=np.arange(4)
     for ax,phase in zip(axes,['input','kernel']):
         for i,system in enumerate(['python','rtl']):
-            bars=ax.bar(x+(i-.5)*.36,[r[system+'_'+phase] for r in order],.36,label='Timed Python evaluator' if i==0 else 'Actual RTL');ax.bar_label(bars,padding=2,fontsize=8)
+            bars=ax.bar(x+(i-.5)*.36,[r[system+'_'+phase] for r in order],.36,label='Timed Python evaluator' if i==0 else 'Actual RTL',**bar_style(BASELINE if i==0 else BLUE));ax.bar_label(bars,padding=2,fontsize=8)
         ax.set_xticks(x,labels,fontsize=8);ax.set_ylabel('Cycles');ax.set_title('Input: different service/driver contract' if phase=='input' else 'Matched kernel + drain: registered RTL pipeline');ax.legend(fontsize=8);ax.set_ylim(0,max(r['rtl_'+phase] for r in rows)*1.3)
     save(fig,'03_python_vs_rtl')
     fig,axes=plt.subplots(1,3,figsize=(16,5));x=np.arange(4)
     for ax,key,title,unit in zip(axes,['rtl_link_flits','result_packets','router_blocked_port_cycles'],['Measured directional-link traffic','Measured ejected RESULT / PSUM packets','Measured Router output backpressure'],['Link-flit transfers','Packets','Blocked port-cycles (overlapping)']):
-        bars=ax.bar(x,[r[key] for r in order],color=['#4c78a8','#f58518']*2);ax.bar_label(bars,padding=3,fontsize=8)
+        for i,r in enumerate(order):
+            style=bar_style(BASELINE) if r['policy']=='unindp-compact' else bar_style(BLUE,HATCH)
+            bars=ax.bar(x[i],r[key],**style);ax.bar_label(bars,padding=3,fontsize=8)
         ax.set_xticks(x,labels,fontsize=8);ax.set_title(title);ax.set_ylabel(unit);ax.set_ylim(0,max(r[key] for r in order)*1.25+1)
     save(fig,'04_rtl_communication')
 if __name__=='__main__':main()

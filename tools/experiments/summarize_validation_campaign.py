@@ -5,6 +5,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2];sys.path[:0]=[str(ROOT),str(ROOT/'src')]
 from tools.experiments.scalable_experiments import verified,digest,save,seal
 from tools.experiments.validation_campaign import independent_golden,workload,POLICIES,SHAPES,HARDWARE
+from tools.gemv_plot_style import BLUE, GENERATION, HATCH, INK, INPUT, RANKING, apply_style, bar_style, line_style
 from compiler.mapping_search import catalogue
 def audit(directory,protocol):
     records=[];seen=set()
@@ -88,7 +89,7 @@ def main():
     import matplotlib;matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     import numpy as np
-    plt.rcParams.update({'font.size':10,'svg.fonttype':'none'})
+    apply_style(plt)
     figs=o/'figure';figs.mkdir(exist_ok=True)
     scope='64 physical Tiles | resident weights | timed Python evaluator'
     def finish(fig,name):
@@ -100,25 +101,25 @@ def main():
     fig.suptitle('New 12-shape validation / fixed hardware / ratio below 1 is faster',fontsize=13)
     for column,b in enumerate([1,2,4]):
         ax=axes[0,column]
-        for pi,policy in enumerate(POLICIES[1:]):
+        for policy in POLICIES[1:]:
             vals=[q(r,policy,b)['cycles']/q(r,'unindp-compact',b)['cycles'] if q(r,policy,b)['status']=='ok' else float('nan') for r in data]
-            ax.plot(x,vals,marker=['o','s','^','D'][pi],label=policy)
-        ax.set_yscale('log');ax.axhline(1,color='gray',ls='--');ax.set_xticks(x,labels,rotation=90);ax.set_title(f'All policies / budget {b}');ax.set_ylabel('cycles / compact baseline (log scale)')
+            ax.plot(x,vals,label=policy,**line_style(policy))
+        ax.set_yscale('log');ax.axhline(1,color=INK,ls='--');ax.set_xticks(x,labels,rotation=90);ax.set_title(f'All policies / budget {b}');ax.set_ylabel('cycles / compact baseline (log scale)')
         zoom=axes[1,column]
-        for policy,marker in [('noc-v03','o'),('noc-v04','s')]:
-            zoom.plot(x,[q(r,policy,b)['cycles']/q(r,'unindp-compact',b)['cycles'] for r in data],marker=marker,label=policy)
-        zoom.axhline(1,color='gray',ls='--');zoom.set_xticks(x,labels,rotation=90);zoom.set_title(f'Primary policies / budget {b}');zoom.set_ylabel('cycles / compact baseline (linear zoom)')
+        for policy in ('noc-v03','noc-v04'):
+            zoom.plot(x,[q(r,policy,b)['cycles']/q(r,'unindp-compact',b)['cycles'] for r in data],label=policy,**line_style(policy))
+        zoom.axhline(1,color=INK,ls='--');zoom.set_xticks(x,labels,rotation=90);zoom.set_title(f'Primary policies / budget {b}');zoom.set_ylabel('cycles / compact baseline (linear zoom)')
     axes[0,-1].legend(fontsize=8,loc='upper left',bbox_to_anchor=(1.01,1));finish(fig,'01_latency_ratios')
     fig,ax=plt.subplots(figsize=(12,5));bottom=np.zeros(len(data))
-    for phase in ['input_load','compute_and_gather','completion_drain']:
+    for phase,color in [('input_load',INPUT),('compute_and_gather',BLUE),('completion_drain',INK)]:
         vals=[r['measured'][q(r,'noc-v04')['plan_sha256']]['metrics']['phase_cycles'][phase] for r in data]
-        ax.bar(x,vals,bottom=bottom,label=phase);bottom+=vals
+        ax.bar(x,vals,bottom=bottom,label=phase,**bar_style(color));bottom+=vals
     ax.set_xticks(x,labels,rotation=60);ax.set_ylabel('non-overlapping model cycles');ax.set_title('NoC v0.4 selected plan / budget 1 / new 12 shapes');ax.legend();finish(fig,'02_phases')
     fig,axes=plt.subplots(1,2,figsize=(11,4))
     for policy in POLICIES:
         g=[v for v in groups if v['policy']==policy]
-        axes[0].plot([v['budget'] for v in g],[v['max_regret'] for v in g],'-o',label=policy)
-        axes[1].plot([v['budget'] for v in g],[v['oracle_hits']/v['cases'] for v in g],'-o',label=policy)
+        axes[0].plot([v['budget'] for v in g],[v['max_regret'] for v in g],label=policy,**line_style(policy))
+        axes[1].plot([v['budget'] for v in g],[v['oracle_hits']/v['cases'] for v in g],label=policy,**line_style(policy))
     axes[0].set_ylabel('maximum regret vs finite catalogue');axes[1].set_ylabel('top-K oracle hit fraction (ties accepted)')
     axes[0].set_yscale('symlog',linthresh=.01)
     axes[0].set_ylabel('maximum regret (symlog; linear within +/-0.01)')
@@ -127,34 +128,34 @@ def main():
     fig,axes=plt.subplots(1,3,figsize=(18,5))
     for policy in POLICIES:
         t=[v for v in timings if v['policy']==policy];axes[0].errorbar([v['budget'] for v in t],[v['median'] for v in t],
-          yerr=[[v['median']-v['q1'] for v in t],[v['q3']-v['median'] for v in t]],marker='o',label=policy)
+          yerr=[[v['median']-v['q1'] for v in t],[v['q3']-v['median'] for v in t]],label=policy,**line_style(policy))
     axes[0].set_xlabel('exact budget');axes[0].set_ylabel('search seconds: median / IQR');axes[0].set_title('81x81 only / 5 timed samples + 1 warmup');axes[0].legend(fontsize=8)
     base=np.zeros(5)
-    for key,label in [('generation_seconds','generation'),('ranking','prediction incl. proxy'),('evaluation_seconds','4 numerical evaluations')]:
+    for key,label,color,hatch in [('generation_seconds','generation',GENERATION,None),('ranking','prediction incl. proxy',RANKING,HATCH),('evaluation_seconds','4 numerical evaluations',INK,None)]:
         vals=[]
         for policy in POLICIES:
             s=[v for v in wall['samples'] if not v['warmup'] and v['policy']==policy]
             vals.append(statistics.median(v[key]['ranking_seconds'] if key=='ranking' else sum(v[key]) if key=='evaluation_seconds' else v[key] for v in s))
-        axes[1].bar(range(5),vals,bottom=base,label=label);base+=vals
+        axes[1].bar(range(5),vals,bottom=base,label=label,**bar_style(color,hatch));base+=vals
     axes[1].set_xticks(range(5),POLICIES,rotation=30);axes[1].set_ylabel('median component seconds');axes[1].set_title('Proxy cost included in prediction; component medians');axes[1].legend(fontsize=8)
     shape=next(r for r in data if (r['m'],r['k'])==(81,81))
     for policy in POLICIES:
         t=[v for v in timings if v['policy']==policy]
-        axes[2].plot([v['median'] for v in t],[q(shape,policy,v['budget'])['regret'] for v in t],'-o',label=policy)
+        axes[2].plot([v['median'] for v in t],[q(shape,policy,v['budget'])['regret'] for v in t],label=policy,**line_style(policy))
     axes[2].set_xlabel('median total search seconds');axes[2].set_ylabel('regret vs finite catalogue');axes[2].set_title('81x81 quality vs search cost / budgets 1,2,4');axes[2].legend(fontsize=8)
     finish(fig,'04_search_cost')
     fig,axes=plt.subplots(1,3,figsize=(14,4))
     for ax,phase in zip(axes,['input','kernel','total']):
         for policy in ('noc-v03','noc-v04'):
             vals=[100*e[phase+'_relative'] for r in data for e in r['phase_errors'] if e['policy']==policy]
-            ax.hist(vals,bins=30,alpha=.55,label=policy)
+            ax.hist(vals,bins=30,alpha=.55,label=policy,**bar_style(line_style(policy)['color']))
         ax.set_xlabel(f'{phase}: signed prediction error (%)');ax.set_ylabel('candidate count');ax.set_title('New 12 shapes / n=292 per predictor')
     axes[-1].legend();finish(fig,'05_prediction_errors')
     fig,axes=plt.subplots(1,2,figsize=(13,4))
     for ax,shape in zip(axes,protocol['sensitivity_shapes']):
         ss=[next(r for r in records if [r['m'],r['k']]==shape and r['hardware_point']==p) for p in HARDWARE]
         for policy in POLICIES:
-            ax.plot(range(len(ss)),[q(r,policy)['cycles'] if q(r,policy)['status']=='ok' else float('nan') for r in ss],'-o',label=policy)
+            ax.plot(range(len(ss)),[q(r,policy)['cycles'] if q(r,policy)['status']=='ok' else float('nan') for r in ss],label=policy,**line_style(policy))
         ax.set_xticks(range(len(ss)),list(HARDWARE),rotation=30);ax.set_ylabel('selected model cycles / budget 1');ax.set_title(f'{shape[0]}x{shape[1]} / one variable per point')
     axes[-1].legend(fontsize=8);finish(fig,'06_sensitivity')
     print(json.dumps({k:summary[k] for k in ['new_shapes','attempted','feasible','all_cases']}))
